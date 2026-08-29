@@ -1,0 +1,183 @@
+"""Atomos CLI: Terminal interface and interactive agent REPL."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+from pathlib import Path
+from typing import Annotated, Any
+
+import typer
+from rich.console import Console
+from rich.live import Live
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.prompt import Prompt
+
+from atomos.agent.loop import AgentLoop, TurnOptions
+from atomos.boot.profile import Profile
+from atomos.core.context import Context
+
+app = typer.Typer(
+    name="atomos",
+    help="Atomos - Python AI Agent Harness powered by Cordis micro-kernel patterns.",
+    no_args_is_help=False,
+)
+console = Console()
+
+
+def _format_error(title: str, message: str) -> None:
+    console.print(
+        Panel(
+            f"[bold red]{title}[/bold red]\n\n{message}",
+            title="[bold red]Error[/bold red]",
+            border_style="red",
+        )
+    )
+
+
+async def _run_agent_turn(
+    loop: AgentLoop,
+    prompt_text: str,
+    options: TurnOptions | None = None,
+    is_tty: bool = True,
+) -> str:
+    accumulated = ""
+    if is_tty:
+        with Live(console=console, refresh_per_second=15) as live:
+            async for token in loop.run_turn(prompt_text, options=options):
+                accumulated += token
+                live.update(Markdown(accumulated))
+    else:
+        async for token in loop.run_turn(prompt_text, options=options):
+            accumulated += token
+            sys.stdout.write(token)
+            sys.stdout.flush()
+        sys.stdout.write("\n")
+    return accumulated
+
+
+def _attach_event_listeners(ctx: Context, is_tty: bool) -> None:
+    if not is_tty:
+        return
+
+    def on_tool_start(ev: Any) -> None:
+        name = ev.payload.get("name", "unknown")
+        console.print(f"\n[bold yellow]⚡ Running tool:[/bold yellow] [cyan]{name}[/cyan]")
+
+    def on_tool_end(ev: Any) -> None:
+        result = ev.payload.get("result", {})
+        success = result.get("success", False)
+        status = "[green]✔ Success[/green]" if success else "[red]✖ Failed[/red]"
+        console.print(f"  {status}")
+
+    ctx.on("agent/tool_start", on_tool_start)
+    ctx.on("agent/tool_end", on_tool_end)
+
+
+@app.command()
+def main(
+    prompt: Annotated[
+        str | None,
+        typer.Argument(help="Optional single-turn prompt to run non-interactively."),
+    ] = None,
+    local: Annotated[
+        bool,
+        typer.Option("--local", "-l", help="Run with local OpenAI-compatible LLM (e.g. Ollama)."),
+    ] = False,
+    model: Annotated[
+        str | None,
+        typer.Option("--model", "-m", help="Target LLM model name."),
+    ] = None,
+    local_url: Annotated[
+        str,
+        typer.Option("--local-url", help="Local LLM endpoint URL."),
+    ] = "http://localhost:11434/v1",
+    workspace: Annotated[
+        Path | None,
+        typer.Option("--workspace", "-w", help="Workspace root directory."),
+    ] = None,
+    system_prompt: Annotated[
+        str,
+        typer.Option("--system-prompt", help="Custom system instructions."),
+    ] = "",
+) -> None:
+    """Execute Atomos agent turns or start an interactive session."""
+    target_model = model or ("deepseek-r1" if local else "deepseek-chat")
+    is_tty = sys.stdout.isatty()
+    workspace_dir = workspace.resolve() if workspace else Path.cwd().resolve()
+
+    # Verify API key only for cloud non-local runs
+    if not local and not os.environ.get("DEEPSEEK_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
+        _format_error(
+            "Missing API Key",
+            "Please set [bold green]DEEPSEEK_API_KEY[/bold green] (or [bold green]OPENAI_API_KEY[/bold green]), "
+            "or use [bold cyan]--local / -l[/bold cyan] to connect to a local LLM runner (e.g. Ollama).",
+        )
+        raise typer.Exit(code=1)
+
+    profile = Profile(
+        model=target_model,
+        is_local=local,
+        local_url=local_url,
+        workspace_dir=workspace_dir,
+        system_prompt=system_prompt,
+    )
+
+    ctx, _session, loop = profile.bootstrap()
+    _attach_event_listeners(ctx, is_tty=is_tty)
+    turn_options = ctx.get(TurnOptions)
+
+    # 1. Single-turn non-interactive execution
+    if prompt:
+        try:
+            asyncio.run(_run_agent_turn(loop, prompt, options=turn_options, is_tty=is_tty))
+        except Exception as exc:
+            _format_error("Execution Error", str(exc))
+            raise typer.Exit(code=1) from exc
+        finally:
+            ctx.dispose()
+        return
+
+    # 2. Interactive REPL loop
+    if is_tty:
+        console.print(
+            Panel.fit(
+                f"[bold cyan]Atomos[/bold cyan] (AI-DLC Agentic Coding Assistant)\n"
+                f"[dim]Model: {target_model} | Local: {local} | Workspace: {workspace_dir}[/dim]\n"
+                f"[dim]Type 'exit', 'quit', or ':q' to leave.[/dim]",
+                title="[bold green]Interactive Mode[/bold green]",
+                border_style="cyan",
+            )
+        )
+
+    try:
+        while True:
+            try:
+                user_input = Prompt.ask("\n[bold green]atomos>[/bold green]") if is_tty else sys.stdin.readline()
+                if not user_input or not user_input.strip():
+                    if not is_tty:
+                        break
+                    continue
+
+                cleaned = user_input.strip()
+                if cleaned.lower() in {"exit", "quit", ":q"}:
+                    if is_tty:
+                        console.print("[dim]Goodbye![/dim]")
+                    break
+
+                asyncio.run(_run_agent_turn(loop, cleaned, options=turn_options, is_tty=is_tty))
+
+            except (KeyboardInterrupt, EOFError):
+                if is_tty:
+                    console.print("\n[dim]Session terminated.[/dim]")
+                break
+            except Exception as exc:  # noqa: BLE001
+                _format_error("Turn Error", str(exc))
+    finally:
+        ctx.dispose()
+
+
+if __name__ == "__main__":
+    app()
