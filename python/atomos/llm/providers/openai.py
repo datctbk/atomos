@@ -71,14 +71,14 @@ class OpenAIAdapter(BaseLLMAdapter):
             client.stream("POST", url, headers=headers, json=payload) as response,
         ):
             response.raise_for_status()
+            in_think_block = False
             async for line in response.aiter_lines():
-                    clean_line = line.strip()
-                    if not clean_line or not clean_line.startswith("data:"):
-                        continue
-                    data_str = clean_line[len("data:") :].strip()
+                if not line:
+                    continue
+                if line.startswith("data: "):
+                    data_str = line[6:].strip()
                     if data_str == "[DONE]":
                         break
-
                     try:
                         chunk_json = json.loads(data_str)
                     except json.JSONDecodeError:
@@ -92,9 +92,32 @@ class OpenAIAdapter(BaseLLMAdapter):
                     delta = choice.get("delta", {})
                     finish_reason = choice.get("finish_reason")
 
-                    delta_content = delta.get("content") or ""
-                    delta_tools: list[ToolCallFragment] = []
+                    raw_content = delta.get("content") or ""
+                    delta_reasoning = delta.get("reasoning_content") or delta.get("reasoning") or ""
+                    delta_content = ""
 
+                    if delta_reasoning:
+                        delta_content = raw_content
+                    elif raw_content:
+                        if "<think>" in raw_content:
+                            in_think_block = True
+                            parts = raw_content.split("<think>", 1)
+                            if parts[0]:
+                                delta_content += parts[0]
+                            raw_content = parts[1]
+
+                        if in_think_block:
+                            if "</think>" in raw_content:
+                                in_think_block = False
+                                think_parts = raw_content.split("</think>", 1)
+                                delta_reasoning += think_parts[0]
+                                delta_content += think_parts[1]
+                            else:
+                                delta_reasoning += raw_content
+                        else:
+                            delta_content += raw_content
+
+                    delta_tools: list[ToolCallFragment] = []
                     raw_tool_calls = delta.get("tool_calls", [])
                     for tc in raw_tool_calls:
                         idx = tc.get("index", 0)
@@ -122,6 +145,7 @@ class OpenAIAdapter(BaseLLMAdapter):
 
                     yield LLMChunk(
                         delta_content=delta_content,
+                        delta_reasoning=delta_reasoning,
                         delta_tool_calls=delta_tools,
                         finish_reason=finish_reason,
                         usage=usage_obj,

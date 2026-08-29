@@ -81,6 +81,7 @@ class DeepSeekAdapter(BaseLLMAdapter):
                     finish_reason = choice.get("finish_reason")
 
                     delta_content = delta.get("content") or ""
+                    delta_reasoning = delta.get("reasoning_content") or ""
                     delta_tools: list[ToolCallFragment] = []
 
                     raw_tool_calls = delta.get("tool_calls", [])
@@ -110,6 +111,7 @@ class DeepSeekAdapter(BaseLLMAdapter):
 
                     yield LLMChunk(
                         delta_content=delta_content,
+                        delta_reasoning=delta_reasoning,
                         delta_tool_calls=delta_tools,
                         finish_reason=finish_reason,
                         usage=usage_obj,

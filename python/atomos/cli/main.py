@@ -63,12 +63,14 @@ def _attach_event_listeners(ctx: Context, is_tty: bool) -> None:
         return
 
     def on_tool_start(ev: Any) -> None:
-        name = ev.payload.get("name", "unknown")
+        data = ev.payload if hasattr(ev, "payload") else (ev if isinstance(ev, dict) else {})
+        name = data.get("name", "unknown")
         console.print(f"\n[bold yellow]⚡ Running tool:[/bold yellow] [cyan]{name}[/cyan]")
 
     def on_tool_end(ev: Any) -> None:
-        result = ev.payload.get("result", {})
-        success = result.get("success", False)
+        data = ev.payload if hasattr(ev, "payload") else (ev if isinstance(ev, dict) else {})
+        result = data.get("result", {})
+        success = result.get("success", False) if isinstance(result, dict) else False
         status = "[green]✔ Success[/green]" if success else "[red]✖ Failed[/red]"
         console.print(f"  {status}")
 
@@ -91,9 +93,9 @@ def main(
         typer.Option("--model", "-m", help="Target LLM model name."),
     ] = None,
     local_url: Annotated[
-        str,
-        typer.Option("--local-url", help="Local LLM endpoint URL."),
-    ] = "http://localhost:11434/v1",
+        str | None,
+        typer.Option("--local-url", help="Local LLM endpoint URL (defaults to ATOMOS_LOCAL_LLM_URL or http://localhost:11434/v1)."),
+    ] = None,
     workspace: Annotated[
         Path | None,
         typer.Option("--workspace", "-w", help="Workspace root directory."),
@@ -107,6 +109,7 @@ def main(
     target_model = model or ("deepseek-r1" if local else "deepseek-chat")
     is_tty = sys.stdout.isatty()
     workspace_dir = workspace.resolve() if workspace else Path.cwd().resolve()
+    effective_local_url = local_url or os.environ.get("ATOMOS_LOCAL_LLM_URL", "http://localhost:11434/v1")
 
     # Verify API key only for cloud non-local runs
     if not local and not os.environ.get("DEEPSEEK_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
@@ -120,7 +123,7 @@ def main(
     profile = Profile(
         model=target_model,
         is_local=local,
-        local_url=local_url,
+        local_url=effective_local_url,
         workspace_dir=workspace_dir,
         system_prompt=system_prompt,
     )

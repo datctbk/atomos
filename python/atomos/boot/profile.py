@@ -1,7 +1,4 @@
-"""Profile configuration model and bootstrap coordinator."""
-
-from __future__ import annotations
-
+import os
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,7 +19,9 @@ class Profile(BaseModel):
 
     model: str = "deepseek-chat"
     is_local: bool = False
-    local_url: str = "http://localhost:11434/v1"
+    local_url: str = Field(
+        default_factory=lambda: os.environ.get("ATOMOS_LOCAL_LLM_URL", "http://localhost:11434/v1")
+    )
     workspace_dir: Path = Field(default_factory=Path.cwd)
     sessions_dir: Path = Field(default_factory=lambda: Path.home() / ".atomos" / "sessions")
     system_prompt: str = ""

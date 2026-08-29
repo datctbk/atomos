@@ -58,6 +58,7 @@ class LLMChunk(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     delta_content: str = ""
+    delta_reasoning: str = ""
     delta_tool_calls: list[ToolCallFragment] = Field(default_factory=list)
     finish_reason: str | None = None
     usage: UsageInfo | None = None

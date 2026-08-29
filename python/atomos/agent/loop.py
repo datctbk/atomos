@@ -157,9 +157,22 @@ class AgentLoop:
                             yield chunk
                     return _factory
 
+                is_thinking = False
                 active_tools = tools if tools else None
                 async for chunk in retry_async_stream(_make_stream_factory(messages, active_tools)):
+                    if chunk.delta_reasoning:
+                        if not is_thinking:
+                            is_thinking = True
+                            await self.context.emit("agent/reasoning_start", {})
+                            yield "> *💭 Thinking:*\n> *"
+                        await self.context.emit("agent/reasoning", {"delta": chunk.delta_reasoning})
+                        yield chunk.delta_reasoning.replace("\n", "\n> *")
+
                     if chunk.delta_content:
+                        if is_thinking:
+                            is_thinking = False
+                            await self.context.emit("agent/reasoning_end", {})
+                            yield "*\n\n---\n\n"
                         full_text += chunk.delta_content
                         await self.context.emit("agent/token", {"delta": chunk.delta_content})
                         yield chunk.delta_content
@@ -169,6 +182,11 @@ class AgentLoop:
 
                     if chunk.usage:
                         final_usage = chunk.usage
+
+                if is_thinking:
+                    is_thinking = False
+                    await self.context.emit("agent/reasoning_end", {})
+                    yield "*\n\n---\n\n"
 
                 if final_usage:
                     self.cumulative_usage = UsageInfo(
