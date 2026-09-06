@@ -4,7 +4,12 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from atomos.agent.loop import AgentLoop, TurnOptions
-from atomos.boot.bundles.base import CoreBundle, LLMBundle, ToolsBundle
+from atomos.boot.bundles.base import (
+    CoreBundle,
+    GuardrailsBundle,
+    LLMBundle,
+    ToolsBundle,
+)
 from atomos.core.context import Context
 from atomos.core.session import Session
 from atomos.core.system_prompt import build_system_prompt
@@ -32,24 +37,25 @@ class Profile(BaseModel):
         """Wires up Context, Session, ToolRegistry, LLMAdapter, and AgentLoop."""
         ctx = Context()
 
-        # 1. Apply core, tools, and LLM bundles
+        # 1. Apply core, tools, LLM, and guardrails bundles
         CoreBundle(sessions_dir=self.sessions_dir).apply(ctx)
         ToolsBundle(workspace_root=self.workspace_dir).apply(ctx)
         LLMBundle(model=self.model, is_local=self.is_local, local_url=self.local_url).apply(ctx)
+        GuardrailsBundle(mode=self.guardrail_mode).apply(ctx)
 
+        # 2. Retrieve injected services uniformly from Context
         session = ctx.get(Session)
         adapter = ctx.get(BaseLLMAdapter)
         registry = ctx.get(ToolRegistry)
-        classifier = ToolGuardrailClassifier(mode=self.guardrail_mode)
-        ctx.provide(ToolGuardrailClassifier, classifier)
+        classifier = ctx.get(ToolGuardrailClassifier)
 
-        # 2. Build system prompt if not explicitly supplied
+        # 3. Build system prompt if not explicitly supplied
         effective_system_prompt = self.system_prompt or build_system_prompt(
             workspace_path=self.workspace_dir,
             tools_summary="File manipulation (view, write, replace) and subprocess shell command execution.",
         )
 
-        # 3. Assemble AgentLoop
+        # 4. Assemble AgentLoop
         loop = AgentLoop(
             context=ctx,
             session=session,

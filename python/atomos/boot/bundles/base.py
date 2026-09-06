@@ -14,6 +14,7 @@ from atomos.llm.providers.openai import OpenAIAdapter
 from atomos.tools.base import ToolRegistry
 from atomos.tools.builtins.fs import PathSandbox, ReplaceFileTool, ViewFileTool, WriteFileTool
 from atomos.tools.builtins.shell import RunCommandTool
+from atomos.tools.guardrails import GuardrailMode, ToolGuardrailClassifier
 
 
 class BaseBundle(ABC):
@@ -94,3 +95,16 @@ class LLMBundle(BaseBundle):
         else:
             adapter = DeepSeekAdapter(model=self.model)
         return context.provide(BaseLLMAdapter, adapter)
+
+
+class GuardrailsBundle(BaseBundle):
+    """Mounts risk classification and human-in-the-loop safety guardrails."""
+
+    name: str = "guardrails"
+
+    def __init__(self, mode: GuardrailMode = GuardrailMode.ASK_DANGEROUS) -> None:
+        self.mode = mode
+
+    def apply(self, context: Context, **kwargs: Any) -> Disposable:
+        classifier = ToolGuardrailClassifier(mode=self.mode)
+        return context.provide(ToolGuardrailClassifier, classifier)

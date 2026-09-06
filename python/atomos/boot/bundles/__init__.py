@@ -3,6 +3,7 @@
 from atomos.boot.bundles.base import (
     BaseBundle,
     CoreBundle,
+    GuardrailsBundle,
     LLMBundle,
     ToolsBundle,
 )
@@ -10,6 +11,7 @@ from atomos.boot.bundles.base import (
 __all__ = [
     "BaseBundle",
     "CoreBundle",
+    "GuardrailsBundle",
     "LLMBundle",
     "ToolsBundle",
 ]
