@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Any, Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from atomos.core.context import Disposable
 
@@ -38,6 +38,7 @@ class ToolResult(BaseModel):
     success: bool
     output: str = ""
     error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for session event persistence or prompt context injection."""
@@ -45,6 +46,7 @@ class ToolResult(BaseModel):
             "success": self.success,
             "output": self.output,
             "error": self.error,
+            "metadata": self.metadata,
         }
 
 

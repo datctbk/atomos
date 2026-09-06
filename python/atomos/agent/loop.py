@@ -21,7 +21,8 @@ from atomos.llm.base import (
     UsageInfo,
 )
 from atomos.llm.retry import retry_async_stream
-from atomos.tools.base import ToolRegistry
+from atomos.tools.base import ToolRegistry, ToolResult
+from atomos.tools.guardrails import ApprovalCallback, ToolGuardrailClassifier
 
 logger = logging.getLogger("atomos.agent")
 
@@ -40,11 +41,12 @@ class AgentStatus(str, Enum):
 class TurnOptions(BaseModel):
     """Configuration options controlling turn execution boundaries."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     max_iterations: int = Field(default=25, ge=1, le=100)
     system_prompt: str = ""
     max_history_messages: int = Field(default=50, ge=4)
+    approval_callback: ApprovalCallback | None = None
 
 
 class ContextCompactor:
@@ -109,11 +111,15 @@ class AgentLoop:
         session: Session,
         llm_adapter: BaseLLMAdapter,
         tool_registry: ToolRegistry,
+        guardrail_classifier: ToolGuardrailClassifier | None = None,
+        approval_callback: ApprovalCallback | None = None,
     ) -> None:
         self.context = context
         self.session = session
         self.llm_adapter = llm_adapter
         self.tool_registry = tool_registry
+        self.guardrail_classifier = guardrail_classifier or ToolGuardrailClassifier()
+        self.approval_callback = approval_callback
         self.status = AgentStatus.IDLE
         self.cumulative_usage = UsageInfo()
 
@@ -210,7 +216,7 @@ class AgentLoop:
                     # Completed without requesting tools
                     break
 
-                # 3. Execute requested tools sequentially
+                # 3. Execute requested tools sequentially with safety guardrails
                 self.status = AgentStatus.EXECUTING_TOOLS
                 for tc in tool_calls:
                     call_id = tc["id"]
@@ -223,7 +229,32 @@ class AgentLoop:
                         {"id": call_id, "name": func_name, "args": func_args},
                     )
 
-                    res = await self.tool_registry.execute_tool(func_name, func_args)
+                    # Guardrail risk assessment
+                    decision = self.guardrail_classifier.evaluate(func_name, func_args)
+                    allowed = True
+                    denial_reason = ""
+
+                    if decision.requires_approval:
+                        cb = opts.approval_callback or self.approval_callback
+                        if cb:
+                            allowed = await cb(decision)
+                            if not allowed:
+                                denial_reason = f"Execution denied by user: {decision.reason}"
+                        else:
+                            allowed = False
+                            denial_reason = (
+                                f"Execution rejected by safety guardrail (interactive approval required): {decision.reason}"
+                            )
+
+                    if allowed:
+                        res = await self.tool_registry.execute_tool(func_name, func_args)
+                    else:
+                        res = ToolResult(
+                            success=False,
+                            output="",
+                            error=denial_reason or "Execution denied by user.",
+                            metadata={"guardrail_decision": decision.model_dump()},
+                        )
 
                     self.session.append_event(
                         SessionEventType.TOOL_RESULT,

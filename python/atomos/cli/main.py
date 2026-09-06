@@ -20,6 +20,13 @@ from rich.text import Text
 from atomos.agent.loop import AgentLoop, TurnOptions
 from atomos.boot.profile import Profile
 from atomos.core.context import Context
+from atomos.tools.guardrails import (
+    ApprovalCallback,
+    GuardrailDecision,
+    GuardrailMode,
+    RiskLevel,
+    ToolGuardrailClassifier,
+)
 
 app = typer.Typer(
     name="atomos",
@@ -37,6 +44,58 @@ def _format_error(title: str, message: str) -> None:
             border_style="red",
         )
     )
+
+
+def _create_approval_callback(classifier: ToolGuardrailClassifier, is_tty: bool) -> ApprovalCallback:
+    async def approval_callback(decision: GuardrailDecision) -> bool:
+        if not is_tty:
+            return False
+
+        risk_color = {
+            RiskLevel.SAFE: "green",
+            RiskLevel.LOW: "cyan",
+            RiskLevel.HIGH: "yellow",
+            RiskLevel.CRITICAL: "bold red",
+        }.get(decision.risk_level, "yellow")
+
+        info_lines = [
+            f"[bold]Tool:[/bold]         [cyan]{decision.tool_name}[/cyan]",
+            f"[bold]Command/File:[/bold] [white]{decision.command_or_target}[/white]",
+            f"[bold]Risk Level:[/bold]   [{risk_color}]{decision.risk_level.value.upper()}[/{risk_color}]",
+            f"[bold]Reason:[/bold]       [dim]{decision.reason}[/dim]",
+        ]
+
+        console.print(
+            Panel(
+                "\n".join(info_lines),
+                title=f"[{risk_color}]⚠️  Security Guardrail: Confirmation Required[/{risk_color}]",
+                border_style=risk_color,
+            )
+        )
+
+        try:
+            choice = Prompt.ask(
+                "[bold yellow]Approve execution?[/bold yellow] ([green]y[/green]es / [red]N[/red]o / [cyan]a[/cyan]lways allow / [magenta]abort[/magenta])",
+                default="n",
+            ).strip().lower()
+
+            if choice in {"y", "yes"}:
+                return True
+            elif choice in {"a", "always"}:
+                if decision.tool_name == "run_command" and decision.command_or_target:
+                    classifier.whitelist_command(decision.command_or_target)
+                else:
+                    classifier.whitelist_tool(decision.tool_name)
+                console.print("  [dim green]✔ Added to session whitelist.[/dim green]")
+                return True
+            elif choice == "abort":
+                raise KeyboardInterrupt()
+            else:
+                return False
+        except (KeyboardInterrupt, EOFError):
+            return False
+
+    return approval_callback
 
 
 async def _run_agent_turn(
@@ -76,7 +135,7 @@ def _attach_event_listeners(ctx: Context, is_tty: bool) -> None:
         if isinstance(raw_args, str):
             try:
                 args = json.loads(raw_args)
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 args = {"raw": raw_args}
         elif isinstance(raw_args, dict):
             args = raw_args
@@ -158,6 +217,15 @@ def main(
         bool,
         typer.Option("--markdown", "--md", help="Render response formatted with Rich Markdown."),
     ] = False,
+    guardrail: Annotated[
+        GuardrailMode,
+        typer.Option(
+            "--guardrail",
+            "-g",
+            help="Safety guardrail mode: 'ask-dangerous' (default), 'ask-always', or 'yolo'.",
+            case_sensitive=False,
+        ),
+    ] = GuardrailMode.ASK_DANGEROUS,
 ) -> None:
     """Execute Atomos agent turns or start an interactive session."""
     target_model = model or ("deepseek-r1" if local else "deepseek-chat")
@@ -180,9 +248,14 @@ def main(
         local_url=effective_local_url,
         workspace_dir=workspace_dir,
         system_prompt=system_prompt,
+        guardrail_mode=guardrail,
     )
 
     ctx, _session, loop = profile.bootstrap()
+    classifier = ctx.get(ToolGuardrailClassifier)
+    if classifier:
+        loop.approval_callback = _create_approval_callback(classifier, is_tty=is_tty)
+
     _attach_event_listeners(ctx, is_tty=is_tty)
     turn_options = ctx.get(TurnOptions)
 

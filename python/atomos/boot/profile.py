@@ -10,6 +10,7 @@ from atomos.core.session import Session
 from atomos.core.system_prompt import build_system_prompt
 from atomos.llm.base import BaseLLMAdapter
 from atomos.tools.base import ToolRegistry
+from atomos.tools.guardrails import GuardrailMode, ToolGuardrailClassifier
 
 
 class Profile(BaseModel):
@@ -25,6 +26,7 @@ class Profile(BaseModel):
     workspace_dir: Path = Field(default_factory=Path.cwd)
     sessions_dir: Path = Field(default_factory=lambda: Path.home() / ".atomos" / "sessions")
     system_prompt: str = ""
+    guardrail_mode: GuardrailMode = GuardrailMode.ASK_DANGEROUS
 
     def bootstrap(self) -> tuple[Context, Session, AgentLoop]:
         """Wires up Context, Session, ToolRegistry, LLMAdapter, and AgentLoop."""
@@ -38,6 +40,8 @@ class Profile(BaseModel):
         session = ctx.get(Session)
         adapter = ctx.get(BaseLLMAdapter)
         registry = ctx.get(ToolRegistry)
+        classifier = ToolGuardrailClassifier(mode=self.guardrail_mode)
+        ctx.provide(ToolGuardrailClassifier, classifier)
 
         # 2. Build system prompt if not explicitly supplied
         effective_system_prompt = self.system_prompt or build_system_prompt(
@@ -51,6 +55,7 @@ class Profile(BaseModel):
             session=session,
             llm_adapter=adapter,
             tool_registry=registry,
+            guardrail_classifier=classifier,
         )
         ctx.provide(AgentLoop, loop)
         ctx.provide(TurnOptions, TurnOptions(system_prompt=effective_system_prompt))

@@ -78,7 +78,7 @@ class OpenAIAdapter(BaseLLMAdapter):
                     if isinstance(err_json, dict) and "error" in err_json:
                         err_obj = err_json["error"]
                         error_detail = err_obj.get("message", error_detail) if isinstance(err_obj, dict) else str(err_obj)
-                except Exception:
+                except (json.JSONDecodeError, KeyError, TypeError):
                     pass
                 raise RuntimeError(f"HTTP {response.status_code} from LLM server ({url}): {error_detail}")
             in_think_block = False
