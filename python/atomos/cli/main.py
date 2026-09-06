@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 from pathlib import Path
@@ -71,14 +72,53 @@ def _attach_event_listeners(ctx: Context, is_tty: bool) -> None:
     def on_tool_start(ev: Any) -> None:
         data = ev.payload if hasattr(ev, "payload") else (ev if isinstance(ev, dict) else {})
         name = data.get("name", "unknown")
-        console.print(f"\n[bold yellow]⚡ Running tool:[/bold yellow] [cyan]{name}[/cyan]")
+        raw_args = data.get("args", {})
+        if isinstance(raw_args, str):
+            try:
+                args = json.loads(raw_args)
+            except Exception:
+                args = {"raw": raw_args}
+        elif isinstance(raw_args, dict):
+            args = raw_args
+        else:
+            args = {}
+
+        console.print(f"\n[bold yellow]⚡ Running tool:[/bold yellow] [bold cyan]{name}[/bold cyan]")
+        if name == "run_command":
+            cmd = args.get("command", "")
+            cwd = args.get("cwd")
+            cwd_str = f" [dim](cwd: {cwd})[/dim]" if cwd else ""
+            console.print(f"  [bold white]$[/bold white] [bold green]{cmd}[/bold green]{cwd_str}")
+        elif name == "view_file":
+            path = args.get("file_path", "")
+            offset = args.get("offset", 1)
+            limit = args.get("limit", 800)
+            console.print(f"  [dim]📄[/dim] [blue]{path}[/blue] [dim](lines {offset}-{offset+limit-1})[/dim]")
+        elif name == "write_file":
+            path = args.get("file_path", "")
+            console.print(f"  [dim]📝[/dim] [blue]{path}[/blue]")
+        elif name == "replace_file":
+            path = args.get("file_path", "")
+            console.print(f"  [dim]✏️[/dim] [blue]{path}[/blue]")
+        elif args:
+            compact_args = ", ".join(f"{k}={v!r}" for k, v in args.items() if k != "content")
+            if compact_args:
+                console.print(f"  [dim]({compact_args})[/dim]")
 
     def on_tool_end(ev: Any) -> None:
         data = ev.payload if hasattr(ev, "payload") else (ev if isinstance(ev, dict) else {})
         result = data.get("result", {})
         success = result.get("success", False) if isinstance(result, dict) else False
-        status = "[green]✔ Success[/green]" if success else "[red]✖ Failed[/red]"
-        console.print(f"  {status}")
+        error = result.get("error") if isinstance(result, dict) else None
+        meta = result.get("metadata", {}) if isinstance(result, dict) else {}
+        time_ms = meta.get("execution_time_ms") if isinstance(meta, dict) else None
+        duration_str = f" [dim]({time_ms:.1f}ms)[/dim]" if time_ms is not None else ""
+
+        if success:
+            console.print(f"  [green]✔ Success[/green]{duration_str}")
+        else:
+            err_msg = f": [red]{error}[/red]" if error else ""
+            console.print(f"  [red]✖ Failed[/red]{err_msg}{duration_str}")
 
     ctx.on("agent/tool_start", on_tool_start)
     ctx.on("agent/tool_end", on_tool_end)

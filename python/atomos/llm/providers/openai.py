@@ -70,7 +70,17 @@ class OpenAIAdapter(BaseLLMAdapter):
             httpx.AsyncClient(timeout=timeout) as client,
             client.stream("POST", url, headers=headers, json=payload) as response,
         ):
-            response.raise_for_status()
+            if response.status_code >= 400:
+                body = await response.aread()
+                error_detail = body.decode("utf-8", errors="replace")
+                try:
+                    err_json = json.loads(error_detail)
+                    if isinstance(err_json, dict) and "error" in err_json:
+                        err_obj = err_json["error"]
+                        error_detail = err_obj.get("message", error_detail) if isinstance(err_obj, dict) else str(err_obj)
+                except Exception:
+                    pass
+                raise RuntimeError(f"HTTP {response.status_code} from LLM server ({url}): {error_detail}")
             in_think_block = False
             async for line in response.aiter_lines():
                 if not line:
