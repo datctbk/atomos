@@ -2,39 +2,21 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from pydantic import BaseModel, Field
 
+from atomos.guard.sandbox import PathSandbox, SecurityAccessError
 from atomos.tools.base import BaseTool, ToolResult
 
-
-class SecurityAccessError(PermissionError):
-    """Raised when an operation attempts to access paths outside the sandbox."""
-
-
-
-class PathSandbox:
-    """Enforces strict path confinement within workspace_root."""
-
-    def __init__(self, workspace_root: Path | str | None = None) -> None:
-        raw = Path(workspace_root) if workspace_root else Path.cwd()
-        self.workspace_root = raw.expanduser().resolve()
-
-    def resolve_safe_path(self, target_path: str | Path) -> Path:
-        """Resolve a path and verify it resides strictly inside workspace_root."""
-        raw_path = Path(target_path).expanduser()
-        if raw_path.is_absolute():
-            resolved = raw_path.resolve()
-        else:
-            resolved = (self.workspace_root / raw_path).resolve()
-
-        if not resolved.is_relative_to(self.workspace_root):
-            raise SecurityAccessError(
-                f"SecurityAccessError: Path '{target_path}' resolves to '{resolved}', "
-                f"which is outside authorized workspace root '{self.workspace_root}'."
-            )
-        return resolved
+__all__ = [
+    "PathSandbox",
+    "ReplaceFileInput",
+    "ReplaceFileTool",
+    "SecurityAccessError",
+    "ViewFileInput",
+    "ViewFileTool",
+    "WriteFileInput",
+    "WriteFileTool",
+]
 
 
 # 1. ViewFileTool

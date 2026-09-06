@@ -10,8 +10,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from atomos.guard.sandbox import PathSandbox, SecurityAccessError
 from atomos.tools.base import BaseTool, ToolResult
-from atomos.tools.builtins.fs import PathSandbox, SecurityAccessError
 
 
 class ProcessGroupRunner:

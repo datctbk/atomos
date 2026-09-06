@@ -20,7 +20,7 @@ from rich.text import Text
 from atomos.agent.loop import AgentLoop, TurnOptions
 from atomos.boot.profile import Profile
 from atomos.core.context import Context
-from atomos.tools.guardrails import (
+from atomos.guard import (
     ApprovalCallback,
     GuardrailDecision,
     GuardrailMode,

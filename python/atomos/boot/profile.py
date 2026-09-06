@@ -13,9 +13,9 @@ from atomos.boot.bundles.base import (
 from atomos.core.context import Context
 from atomos.core.session import Session
 from atomos.core.system_prompt import build_system_prompt
+from atomos.guard import GuardrailMode, ToolGuardrailClassifier
 from atomos.llm.base import BaseLLMAdapter
 from atomos.tools.base import ToolRegistry
-from atomos.tools.guardrails import GuardrailMode, ToolGuardrailClassifier
 
 
 class Profile(BaseModel):

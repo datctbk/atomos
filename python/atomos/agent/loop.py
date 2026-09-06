@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from atomos.core.context import Context
 from atomos.core.session import Session, SessionEvent, SessionEventType
+from atomos.guard import ApprovalCallback, ToolGuardrailClassifier
 from atomos.llm.base import (
     BaseLLMAdapter,
     LLMChunk,
@@ -22,7 +23,6 @@ from atomos.llm.base import (
 )
 from atomos.llm.retry import retry_async_stream
 from atomos.tools.base import ToolRegistry, ToolResult
-from atomos.tools.guardrails import ApprovalCallback, ToolGuardrailClassifier
 
 logger = logging.getLogger("atomos.agent")
 
