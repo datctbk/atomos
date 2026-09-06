@@ -14,6 +14,7 @@ from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Prompt
+from rich.text import Text
 
 from atomos.agent.loop import AgentLoop, TurnOptions
 from atomos.boot.profile import Profile
@@ -42,13 +43,18 @@ async def _run_agent_turn(
     prompt_text: str,
     options: TurnOptions | None = None,
     is_tty: bool = True,
+    live: bool = False,
+    markdown: bool = False,
 ) -> str:
     accumulated = ""
-    if is_tty:
-        with Live(console=console, refresh_per_second=15) as live:
+    if (live or markdown) and is_tty:
+        with Live(console=console, refresh_per_second=15, vertical_overflow="visible") as live_display:
             async for token in loop.run_turn(prompt_text, options=options):
                 accumulated += token
-                live.update(Markdown(accumulated))
+                if markdown:
+                    live_display.update(Markdown(accumulated))
+                else:
+                    live_display.update(Text.from_ansi(accumulated))
     else:
         async for token in loop.run_turn(prompt_text, options=options):
             accumulated += token
@@ -104,11 +110,19 @@ def main(
         str,
         typer.Option("--system-prompt", help="Custom system instructions."),
     ] = "",
+    live: Annotated[
+        bool,
+        typer.Option("--live", help="Use Rich Live display mode during streaming."),
+    ] = False,
+    markdown: Annotated[
+        bool,
+        typer.Option("--markdown", "--md", help="Render response formatted with Rich Markdown."),
+    ] = False,
 ) -> None:
     """Execute Atomos agent turns or start an interactive session."""
     target_model = model or ("deepseek-r1" if local else "deepseek-chat")
     is_tty = sys.stdout.isatty()
-    workspace_dir = workspace.resolve() if workspace else Path.cwd().resolve()
+    workspace_dir = workspace.expanduser().resolve() if workspace else Path.cwd().resolve()
     effective_local_url = local_url or os.environ.get("ATOMOS_LOCAL_LLM_URL", "http://localhost:11434/v1")
 
     # Verify API key only for cloud non-local runs
@@ -135,7 +149,19 @@ def main(
     # 1. Single-turn non-interactive execution
     if prompt:
         try:
-            asyncio.run(_run_agent_turn(loop, prompt, options=turn_options, is_tty=is_tty))
+            asyncio.run(
+                _run_agent_turn(
+                    loop,
+                    prompt,
+                    options=turn_options,
+                    is_tty=is_tty,
+                    live=live,
+                    markdown=markdown,
+                )
+            )
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            console.print("\n[bold yellow]⚠ Turn cancelled by user.[/bold yellow]")
+            raise typer.Exit(code=130)
         except Exception as exc:
             _format_error("Execution Error", str(exc))
             raise typer.Exit(code=1) from exc
@@ -148,8 +174,8 @@ def main(
         console.print(
             Panel.fit(
                 f"[bold cyan]Atomos[/bold cyan] (AI-DLC Agentic Coding Assistant)\n"
-                f"[dim]Model: {target_model} | Local: {local} | Workspace: {workspace_dir}[/dim]\n"
-                f"[dim]Type 'exit', 'quit', or ':q' to leave.[/dim]",
+                f"[dim]Model: {target_model} | Local: {local} | Live: {live} | Markdown: {markdown} | Workspace: {workspace_dir}[/dim]\n"
+                f"[dim]Press Ctrl+C during streaming to cancel a prompt. Type 'exit', 'quit', or ':q' to leave.[/dim]",
                 title="[bold green]Interactive Mode[/bold green]",
                 border_style="cyan",
             )
@@ -159,23 +185,35 @@ def main(
         while True:
             try:
                 user_input = Prompt.ask("\n[bold green]atomos>[/bold green]") if is_tty else sys.stdin.readline()
-                if not user_input or not user_input.strip():
-                    if not is_tty:
-                        break
-                    continue
-
-                cleaned = user_input.strip()
-                if cleaned.lower() in {"exit", "quit", ":q"}:
-                    if is_tty:
-                        console.print("[dim]Goodbye![/dim]")
-                    break
-
-                asyncio.run(_run_agent_turn(loop, cleaned, options=turn_options, is_tty=is_tty))
-
             except (KeyboardInterrupt, EOFError):
                 if is_tty:
-                    console.print("\n[dim]Session terminated.[/dim]")
+                    console.print("\n[dim]Goodbye![/dim]")
                 break
+
+            if not user_input or not user_input.strip():
+                if not is_tty:
+                    break
+                continue
+
+            cleaned = user_input.strip()
+            if cleaned.lower() in {"exit", "quit", ":q"}:
+                if is_tty:
+                    console.print("[dim]Goodbye![/dim]")
+                break
+
+            try:
+                asyncio.run(
+                    _run_agent_turn(
+                        loop,
+                        cleaned,
+                        options=turn_options,
+                        is_tty=is_tty,
+                        live=live,
+                        markdown=markdown,
+                    )
+                )
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                console.print("\n[bold yellow]⚠ Turn cancelled by user.[/bold yellow]")
             except Exception as exc:  # noqa: BLE001
                 _format_error("Turn Error", str(exc))
     finally:

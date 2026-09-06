@@ -89,7 +89,7 @@ class RunCommandTool(BaseTool[RunCommandInput]):
             return ToolResult(
                 success=False,
                 output="",
-                error=f"NotADirectoryError: Working directory '{params.cwd}' does not exist.",
+                error=f"NotADirectoryError: Working directory '{safe_cwd}' does not exist.",
             )
 
         try:

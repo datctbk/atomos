@@ -164,15 +164,15 @@ class AgentLoop:
                         if not is_thinking:
                             is_thinking = True
                             await self.context.emit("agent/reasoning_start", {})
-                            yield "> *💭 Thinking:*\n> *"
+                            yield "\033[1;36m💭 Thinking...\033[0m\n\033[3;90m"
                         await self.context.emit("agent/reasoning", {"delta": chunk.delta_reasoning})
-                        yield chunk.delta_reasoning.replace("\n", "\n> *")
+                        yield chunk.delta_reasoning
 
                     if chunk.delta_content:
                         if is_thinking:
                             is_thinking = False
                             await self.context.emit("agent/reasoning_end", {})
-                            yield "*\n\n---\n\n"
+                            yield "\033[0m\n\n"
                         full_text += chunk.delta_content
                         await self.context.emit("agent/token", {"delta": chunk.delta_content})
                         yield chunk.delta_content
@@ -186,7 +186,7 @@ class AgentLoop:
                 if is_thinking:
                     is_thinking = False
                     await self.context.emit("agent/reasoning_end", {})
-                    yield "*\n\n---\n\n"
+                    yield "\033[0m\n\n"
 
                 if final_usage:
                     self.cumulative_usage = UsageInfo(

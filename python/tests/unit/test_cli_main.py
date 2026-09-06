@@ -13,6 +13,8 @@ def test_cli_help_flag() -> None:
     assert "--local" in result.stdout
     assert "--model" in result.stdout
     assert "--workspace" in result.stdout
+    assert "--live" in result.stdout
+    assert "--markdown" in result.stdout
 
 
 def test_cli_missing_api_key_exits_with_error(monkeypatch: pytest.MonkeyPatch) -> None:

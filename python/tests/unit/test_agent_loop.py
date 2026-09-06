@@ -142,3 +142,44 @@ async def test_agent_loop_max_iterations_guardrail(tmp_path: Path) -> None:
 
     full_output = "".join(tokens)
     assert "[Warning: Reached maximum turn iterations limit (3)]" in full_output
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_thinking_formatting(tmp_path: Path) -> None:
+    ctx = Context()
+    store = SessionStore(base_dir=tmp_path)
+    session = store.create_session("sess_thinking")
+    registry = ToolRegistry()
+
+    class ReasoningMockAdapter(MockLLMAdapter):
+        async def stream(
+            self,
+            messages: list[Any],
+            tools: list[dict[str, Any]] | None = None,
+        ) -> Any:
+            yield LLMChunk(
+                delta_content="",
+                delta_reasoning="Let me think about how to solve this.",
+            )
+            yield LLMChunk(
+                delta_content="Here is the final answer.",
+                delta_reasoning="",
+            )
+
+    loop = AgentLoop(
+        context=ctx,
+        session=session,
+        llm_adapter=ReasoningMockAdapter(),
+        tool_registry=registry,
+    )
+
+    tokens = []
+    async for tok in loop.run_turn("Solve this"):
+        tokens.append(tok)
+
+    full_output = "".join(tokens)
+    assert "💭 Thinking..." in full_output
+    assert "\033[3;90m" in full_output  # Italic + dim gray
+    assert "Let me think about how to solve this." in full_output
+    assert "\033[0m" in full_output  # Style reset
+    assert "Here is the final answer." in full_output

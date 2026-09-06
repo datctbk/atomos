@@ -18,11 +18,12 @@ class PathSandbox:
     """Enforces strict path confinement within workspace_root."""
 
     def __init__(self, workspace_root: Path | str | None = None) -> None:
-        self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
+        raw = Path(workspace_root) if workspace_root else Path.cwd()
+        self.workspace_root = raw.expanduser().resolve()
 
     def resolve_safe_path(self, target_path: str | Path) -> Path:
         """Resolve a path and verify it resides strictly inside workspace_root."""
-        raw_path = Path(target_path)
+        raw_path = Path(target_path).expanduser()
         if raw_path.is_absolute():
             resolved = raw_path.resolve()
         else:

@@ -13,7 +13,7 @@ def build_system_prompt(
     tools_summary: str | None = None,
 ) -> str:
     """Constructs a comprehensive system prompt injected with host environment metadata."""
-    resolved_workspace = Path(workspace_path or Path.cwd()).resolve()
+    resolved_workspace = Path(workspace_path or Path.cwd()).expanduser().resolve()
     os_name = platform.system()
     os_release = platform.release()
     shell_name = os.environ.get("SHELL", "bash")

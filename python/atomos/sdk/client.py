@@ -26,12 +26,12 @@ class AtomosClient:
         sessions_dir: Path | str | None = None,
     ) -> None:
         self.profile = Profile(
-            workspace_dir=Path(workspace).resolve(),
+            workspace_dir=Path(workspace).expanduser().resolve(),
             model=model,
             is_local=is_local,
             local_url=local_url,
             system_prompt=system_prompt,
-            sessions_dir=Path(sessions_dir) if sessions_dir else Path.home() / ".atomos" / "sessions",
+            sessions_dir=Path(sessions_dir).expanduser() if sessions_dir else Path.home() / ".atomos" / "sessions",
         )
         self.context: Context | None = None
         self.session: Session | None = None
